@@ -1,7 +1,7 @@
 services:
   web:
     image: nginx:alpine
-    container_name: prueba-web
+    container_name: prueba-web2
     restart: unless-stopped
     ports:
       - "8090:80"
