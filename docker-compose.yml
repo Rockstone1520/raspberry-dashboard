@@ -1,0 +1,9 @@
+services:
+  web:
+    image: nginx:alpine
+    container_name: prueba-web
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
