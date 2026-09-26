@@ -1,9 +1,26 @@
 services:
-  web:
-    image: nginx:alpine
-    container_name: prueba-web2
+  rpi-monitor:
+    build: .
+    image: rpi-monitor:latest
+    container_name: rpi-monitor
     restart: unless-stopped
     ports:
-      - "8090:80"
+      - "8088:8088"
+    environment:
+      - INTERVAL=5        # segundos entre mediciones
+      - HISTORY=360       # puntos guardados en memoria (360 x 5 s = 30 min)
+      - TZ=America/Lima
     volumes:
-      - ./index.html:/usr/share/nginx/html/index.html:ro
+      # Socket de Docker en solo lectura para listar contenedores y sus stats
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # /proc, /sys y la raíz del host para métricas reales de la Raspberry
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    labels:
+      - monitor.web=true
+      - monitor.url=http://raspberrypi.local:8088
+    deploy:
+      resources:
+        limits:
+          memory: 128M

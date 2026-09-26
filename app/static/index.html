@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RPi Monitor</title>
+<style>
+:root{
+  --bg:#f4f5f7;--card:#fff;--fg:#1c1f24;--muted:#6b7280;--line:#e5e7eb;
+  --ok:#16a34a;--warn:#d97706;--bad:#dc2626;--c1:#2563eb;--c2:#9333ea;--c3:#ea580c;
+  --track:#eceef1;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1115;--card:#171a20;--fg:#e6e8eb;--muted:#9aa1ab;--line:#262a31;
+  --ok:#22c55e;--warn:#f59e0b;--bad:#f87171;--c1:#60a5fa;--c2:#c084fc;--c3:#fb923c;
+  --track:#23272e;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;padding:18px 20px 6px}
+h1{font-size:20px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.live{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.dot.stale{background:var(--bad)}
+main{padding:10px 20px 30px;max-width:1400px;margin:0 auto}
+.grid{display:grid;gap:14px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.k-label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.k-val{font-size:28px;font-weight:650;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.k-sub{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--track);border-radius:4px;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;background:var(--ok);border-radius:4px;transition:width .4s}
+.charts{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:14px}
+.chart-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.chart-h b{font-weight:600}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:10px}
+.legend span::before{content:"";display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle;background:var(--c)}
+canvas{width:100%;height:160px;display:block}
+h2{font-size:15px;margin:22px 0 10px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:500;cursor:pointer;user-select:none}
+th.num,td.num{text-align:right}
+tr:last-child td{border-bottom:none}
+.name{font-weight:600}
+.img{color:var(--muted);font-size:12px}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;border:1px solid currentColor}
+.p-ok{color:var(--ok)}.p-warn{color:var(--warn)}.p-bad{color:var(--bad)}.p-mut{color:var(--muted)}
+.mini{display:inline-block;width:70px;height:6px;background:var(--track);border-radius:4px;vertical-align:middle;margin-left:8px;overflow:hidden}
+.mini>i{display:block;height:100%;background:var(--c1)}
+a{color:var(--c1);text-decoration:none}
+.err{background:color-mix(in srgb,var(--bad) 12%,var(--card));border:1px solid var(--bad);color:var(--fg);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:none}
+.cores{display:flex;gap:4px;margin-top:8px}
+.cores i{flex:1;height:22px;background:var(--track);border-radius:3px;position:relative;overflow:hidden}
+.cores i b{position:absolute;bottom:0;left:0;right:0;background:var(--c1)}
+.filters{display:flex;gap:6px;margin-left:auto}
+.filters button{background:var(--card);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+.filters button.on{border-color:var(--c1);color:var(--c1)}
+.row-h{display:flex;align-items:center;gap:10px;margin:22px 0 10px}
+.row-h h2{margin:0}
+@media (max-width:600px){header,main{padding-left:14px;padding-right:14px}.k-val{font-size:24px}}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="host">Raspberry Pi</h1>
+  <span class="sub" id="model">—</span>
+  <span class="live"><span class="dot" id="dot"></span><span id="updated">conectando…</span></span>
+</header>
+<main>
+  <div class="err" id="err"></div>
+
+  <section class="grid kpis">
+    <div class="card"><div class="k-label">Webs desplegadas</div><div class="k-val" id="webs">—</div><div class="k-sub" id="webs-sub">—</div></div>
+    <div class="card"><div class="k-label">Contenedores</div><div class="k-val" id="cont">—</div><div class="k-sub" id="cont-sub">—</div></div>
+    <div class="card"><div class="k-label">CPU</div><div class="k-val" id="cpu">—</div><div class="k-sub" id="load">—</div><div class="cores" id="cores"></div></div>
+    <div class="card"><div class="k-label">RAM total</div><div class="k-val" id="ram">—</div><div class="k-sub" id="ram-sub">—</div><div class="bar"><i id="ram-bar"></i></div></div>
+    <div class="card"><div class="k-label">RAM de contenedores</div><div class="k-val" id="cram">—</div><div class="k-sub" id="cram-sub">—</div><div class="bar"><i id="cram-bar"></i></div></div>
+    <div class="card"><div class="k-label">Temperatura</div><div class="k-val" id="temp">—</div><div class="k-sub" id="throttle">—</div></div>
+    <div class="card"><div class="k-label">Disco</div><div class="k-val" id="disk">—</div><div class="k-sub" id="disk-sub">—</div><div class="bar"><i id="disk-bar"></i></div></div>
+    <div class="card"><div class="k-label">Red</div><div class="k-val" id="net" style="font-size:20px">—</div><div class="k-sub" id="net-sub">—</div></div>
+    <div class="card"><div class="k-label">Swap</div><div class="k-val" id="swap">—</div><div class="k-sub" id="swap-sub">—</div><div class="bar"><i id="swap-bar"></i></div></div>
+    <div class="card"><div class="k-label">Encendida desde hace</div><div class="k-val" id="uptime" style="font-size:22px">—</div><div class="k-sub" id="cpu-count">—</div></div>
+  </section>
+
+  <section class="grid charts">
+    <div class="card"><div class="chart-h"><b>CPU y RAM (%)</b><div class="legend"><span style="--c:var(--c1)">CPU</span><span style="--c:var(--c2)">RAM</span></div></div><canvas id="ch-usage"></canvas></div>
+    <div class="card"><div class="chart-h"><b>Temperatura (°C)</b><div class="legend"><span style="--c:var(--c3)">Temp</span></div></div><canvas id="ch-temp"></canvas></div>
+    <div class="card"><div class="chart-h"><b>Red</b><div class="legend"><span style="--c:var(--c1)">Bajada</span><span style="--c:var(--c2)">Subida</span></div></div><canvas id="ch-net"></canvas></div>
+  </section>
+
+  <div class="row-h">
+    <h2>Contenedores</h2>
+    <div class="filters">
+      <button data-f="all" class="on">Todos</button>
+      <button data-f="web">Solo webs</button>
+      <button data-f="running">En ejecución</button>
+    </div>
+  </div>
+  <div class="card tbl-wrap" style="padding:4px 6px">
+    <table>
+      <thead><tr>
+        <th data-k="name">Nombre</th>
+        <th data-k="status">Estado</th>
+        <th data-k="cpu_percent" class="num">CPU</th>
+        <th data-k="mem_used" class="num">RAM</th>
+        <th data-k="mem_percent_host" class="num">% RAM Pi</th>
+        <th data-k="net_rx" class="num">Red ↓ / ↑</th>
+        <th data-k="uptime" class="num">Activo</th>
+        <th>Puertos</th>
+      </tr></thead>
+      <tbody id="tbody"><tr><td colspan="8" class="img">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let data = null, hist = [], sortKey = "mem_used", sortDir = -1, filter = "all";
+
+function fmtB(b){ if(b==null) return "—"; const u=["B","KB","MB","GB","TB"]; let i=0; while(b>=1024&&i<u.length-1){b/=1024;i++} return (b>=100||i===0?b.toFixed(0):b.toFixed(1))+" "+u[i]; }
+function fmtRate(b){ return fmtB(b)+"/s"; }
+function fmtDur(s){ if(s==null) return "—"; const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:m?`${m}m`:`${s}s`; }
+function level(p,w=70,b=90){ return p>=b?"bad":p>=w?"warn":"ok"; }
+function setBar(id,p){ const el=$(id); el.style.width=Math.min(p,100)+"%"; el.style.background=css("--"+level(p)); }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function render(){
+  const h=data.host||{}, s=data.summary||{};
+  $("host").textContent=h.hostname||"Raspberry Pi";
+  $("model").textContent=h.model||"";
+  const err=$("err"); err.style.display=data.error?"block":"none"; err.textContent=data.error||"";
+
+  $("webs").textContent=s.webs_running??"—";
+  $("webs-sub").textContent=`${s.webs_total??0} webs en total${s.unhealthy?` · ${s.unhealthy} con fallos`:""}`;
+  $("cont").textContent=`${s.containers_running??0}/${s.containers_total??0}`;
+  $("cont-sub").textContent=`${s.containers_stopped??0} detenidos · CPU contenedores ${s.containers_cpu??0}%`;
+
+  $("cpu").textContent=(h.cpu_percent??0).toFixed(0)+"%";
+  $("cpu").style.color=css("--"+level(h.cpu_percent||0));
+  $("load").textContent="Carga: "+(h.load||[]).join(" · ");
+  $("cores").innerHTML=(h.cpu_per_core||[]).map(p=>`<i title="${p}%"><b style="height:${p}%"></b></i>`).join("");
+
+  $("ram").textContent=(h.mem_percent??0).toFixed(0)+"%";
+  $("ram-sub").textContent=`${fmtB(h.mem_used)} de ${fmtB(h.mem_total)} · libre ${fmtB(h.mem_available)}`;
+  setBar("ram-bar",h.mem_percent||0);
+
+  $("cram").textContent=(s.containers_mem_percent??0).toFixed(1)+"%";
+  $("cram-sub").textContent=`${fmtB(s.containers_mem)} usados por contenedores`;
+  setBar("cram-bar",s.containers_mem_percent||0);
+
+  if(h.temp!=null){ $("temp").textContent=h.temp.toFixed(1)+" °C"; $("temp").style.color=css("--"+level(h.temp,65,80)); }
+  else $("temp").textContent="N/D";
+  const t=h.throttled;
+  $("throttle").textContent = !t ? "Sin datos de throttling"
+    : t.under_voltage ? "⚠ Bajo voltaje ahora" : t.throttled ? "⚠ CPU limitada ahora"
+    : (t.under_voltage_occurred||t.throttling_occurred) ? "Hubo bajo voltaje/limitación desde el arranque" : "Alimentación OK";
+
+  $("disk").textContent=(h.disk_percent??0).toFixed(0)+"%";
+  $("disk-sub").textContent=`${fmtB(h.disk_used)} de ${fmtB(h.disk_total)}`;
+  setBar("disk-bar",h.disk_percent||0);
+
+  $("net").textContent=`↓ ${fmtRate(h.net_rx_rate)}`;
+  $("net-sub").textContent=`↑ ${fmtRate(h.net_tx_rate)}`;
+
+  $("swap").textContent=h.swap_total?(h.swap_percent??0).toFixed(0)+"%":"Sin swap";
+  $("swap-sub").textContent=h.swap_total?`${fmtB(h.swap_used)} de ${fmtB(h.swap_total)}`:"";
+  setBar("swap-bar",h.swap_percent||0);
+
+  $("uptime").textContent=fmtDur(h.uptime);
+  $("cpu-count").textContent=`${h.cpu_count??"?"} núcleos`;
+
+  renderTable();
+}
+
+function statusPill(c){
+  if(c.status!=="running") return `<span class="pill p-mut">${esc(c.status)}</span>`;
+  if(c.health==="unhealthy") return `<span class="pill p-bad">con fallos</span>`;
+  if(c.health==="starting") return `<span class="pill p-warn">iniciando</span>`;
+  return `<span class="pill p-ok">activo</span>`;
+}
+
+function renderTable(){
+  let rows=(data.containers||[]).slice();
+  if(filter==="web") rows=rows.filter(c=>c.is_web);
+  if(filter==="running") rows=rows.filter(c=>c.status==="running");
+  rows.sort((a,b)=>{ const x=a[sortKey]??-1, y=b[sortKey]??-1; return (x>y?1:x<y?-1:0)*sortDir; });
+  const maxMem=Math.max(1,...rows.map(r=>r.mem_used));
+  const host=location.hostname;
+  $("tbody").innerHTML = rows.length ? rows.map(c=>{
+    const ports=c.ports.map(p=>{
+      const url=c.url || (p.container.endsWith("/tcp")?`http://${host}:${p.host}`:null);
+      return url&&!c.url?`<a href="${esc(url)}" target="_blank">${esc(p.host)}</a>`:esc(p.host);
+    }).join(", ");
+    const link=c.url?` <a href="${esc(c.url)}" target="_blank" title="Abrir">↗</a>`:"";
+    return `<tr>
+      <td><div class="name">${esc(c.name)}${c.is_web?" 🌐":""}${link}</div><div class="img">${esc(c.image)}${c.restarts?` · ${c.restarts} reinicios`:""}</div></td>
+      <td>${statusPill(c)}</td>
+      <td class="num">${c.status==="running"?c.cpu_percent.toFixed(1)+"%":"—"}</td>
+      <td class="num">${c.status==="running"?fmtB(c.mem_used):"—"}<span class="mini"><i style="width:${c.mem_used/maxMem*100}%"></i></span></td>
+      <td class="num">${c.status==="running"?c.mem_percent_host.toFixed(2)+"%":"—"}</td>
+      <td class="num">${c.status==="running"?fmtB(c.net_rx)+" / "+fmtB(c.net_tx):"—"}</td>
+      <td class="num">${fmtDur(c.uptime)}</td>
+      <td>${ports||'<span class="img">—</span>'}</td>
+    </tr>`;}).join("") : `<tr><td colspan="8" class="img">No hay contenedores para este filtro</td></tr>`;
+}
+
+/* ---- gráficos en canvas, sin librerías ---- */
+function drawChart(id, series, {max=null, fmt=v=>v.toFixed(0)}={}){
+  const cv=$(id), dpr=devicePixelRatio||1, w=cv.clientWidth, h=cv.clientHeight;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const ctx=cv.getContext("2d"); ctx.scale(dpr,dpr); ctx.clearRect(0,0,w,h);
+  const padL=46,padB=18,padT=6,pw=w-padL-6,ph=h-padB-padT;
+  const all=series.flatMap(s=>s.data).filter(v=>v!=null);
+  let top=max ?? Math.max(1,...all)*1.15, bot=0;
+  ctx.font="11px system-ui"; ctx.fillStyle=css("--muted"); ctx.strokeStyle=css("--line"); ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){ const y=padT+ph*i/4; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+pw,y); ctx.stroke();
+    ctx.textAlign="right"; ctx.fillText(fmt(top-(top-bot)*i/4),padL-6,y+4); }
+  const n=Math.max(2,series[0].data.length);
+  if(hist.length){ ctx.textAlign="left"; ctx.fillText(new Date(hist[0].t*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),padL,h-3);
+    ctx.textAlign="right"; ctx.fillText("ahora",padL+pw,h-3); }
+  series.forEach(s=>{
+    ctx.strokeStyle=css(s.color); ctx.lineWidth=2; ctx.lineJoin="round"; ctx.beginPath(); let started=false;
+    s.data.forEach((v,i)=>{ if(v==null) return; const x=padL+pw*i/(n-1), y=padT+ph*(1-(v-bot)/(top-bot));
+      started?ctx.lineTo(x,y):(ctx.moveTo(x,y),started=true); });
+    ctx.stroke();
+  });
+}
+function renderCharts(){
+  drawChart("ch-usage",[{data:hist.map(p=>p.cpu),color:"--c1"},{data:hist.map(p=>p.mem),color:"--c2"}],{max:100,fmt:v=>v.toFixed(0)+"%"});
+  drawChart("ch-temp",[{data:hist.map(p=>p.temp),color:"--c3"}],{fmt:v=>v.toFixed(0)+"°"});
+  drawChart("ch-net",[{data:hist.map(p=>p.rx),color:"--c1"},{data:hist.map(p=>p.tx),color:"--c2"}],{fmt:v=>fmtB(v)});
+}
+
+async function tick(){
+  try{
+    const [m,hh]=await Promise.all([fetch("api/metrics").then(r=>r.json()), fetch("api/history").then(r=>r.json())]);
+    data=m; hist=hh; render(); renderCharts();
+    const age=Date.now()/1000-m.updated;
+    $("dot").classList.toggle("stale",age>m.interval*3);
+    $("updated").textContent="Actualizado "+new Date(m.updated*1000).toLocaleTimeString();
+  }catch(e){ $("dot").classList.add("stale"); $("updated").textContent="Sin conexión con el servidor"; }
+}
+
+document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{
+  const k=th.dataset.k; sortDir = sortKey===k ? -sortDir : (k==="name"?1:-1); sortKey=k; if(data) renderTable(); });
+document.querySelectorAll(".filters button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".filters button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  filter=b.dataset.f; if(data) renderTable(); });
+addEventListener("resize",()=>hist.length&&renderCharts());
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{ if(data){render();renderCharts();} });
+
+tick(); setInterval(tick,5000);
+</script>
+</body>
+</html>
